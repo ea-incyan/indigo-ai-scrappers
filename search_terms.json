@@ -1,0 +1,27 @@
+[
+  {
+    "id": 1,
+    "Artist": "Beyonce",
+    "Title": "Single Ladies (Put a ring on it)"
+  },
+  {
+    "id": 2,
+    "Artist": "Beyonce",
+    "Title": "Halo"
+  },
+  {
+    "id": 3,
+    "Artist": "Taylor Swift",
+    "Title": "Shake It Off"
+  },
+  {
+    "id": 4,
+    "Artist": "Ed Sheeran",
+    "Title": "Shape of You"
+  },
+  {
+    "id": 5,
+    "Artist": "Adele",
+    "Title": "Hello"
+  }
+]

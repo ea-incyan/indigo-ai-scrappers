@@ -1,0 +1,50 @@
+# Core dependencies
+requests>=2.28.0
+beautifulsoup4>=4.11.0
+lxml>=4.9.0
+
+# Optional dependencies for advanced features
+playwright>=1.30.0  # For JavaScript-heavy websites
+selenium>=4.8.0     # Alternative browser automation
+
+# Development dependencies
+pytest>=7.0.0
+pytest-cov>=4.0.0
+black>=22.0.0
+flake8>=5.0.0
+mypy>=1.0.0
+
+# CLI dependencies
+click>=8.0.0
+colorama>=0.4.0
+
+# Data processing
+pandas>=1.5.0
+numpy>=1.24.0
+
+# HTTP client alternatives
+urllib3>=1.26.0
+httpx>=0.24.0
+pycurl>=7.45.0
+
+# XML parsing
+xmltodict>=0.13.0
+
+# URL handling
+urllib3>=1.26.0
+
+# Logging
+structlog>=22.0.0
+
+# Configuration
+pyyaml>=6.0
+toml>=0.10.0
+
+# Progress bars
+tqdm>=4.64.0
+
+# Rate limiting
+ratelimit>=2.2.0
+
+# User agents
+fake-useragent>=1.2.0

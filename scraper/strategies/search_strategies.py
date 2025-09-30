@@ -87,36 +87,112 @@ class FormSearchStrategy(SearchStrategy):
         return results
     
     def _extract_results_from_page(self, soup: BeautifulSoup, url: str, query: str) -> List[Dict[str, Any]]:
-        """Extract search results from the page."""
+        """Extract search results from the page with enhanced detection."""
         results = []
         
-        # Look for common result containers
+        # Enhanced result container detection
         result_selectors = [
-            '.result', '.search-result', '.item', '.entry',
-            '[class*="result"]', '[class*="item"]', '[class*="entry"]'
+            # Standard result containers
+            '.result', '.search-result', '.item', '.entry', '.post', '.article',
+            '[class*="result"]', '[class*="item"]', '[class*="entry"]', '[class*="post"]',
+            
+            # Music/entertainment specific
+            '.mixtape', '.album', '.artist', '.track', '.song',
+            '[class*="mixtape"]', '[class*="album"]', '[class*="artist"]', '[class*="track"]',
+            
+            # Content containers
+            '.content', '.main-content', '.search-content', '.results-content',
+            '[class*="content"]', '[class*="main"]', '[class*="search"]',
+            
+            # List containers
+            'ul.results', 'ol.results', 'ul.items', 'ol.items',
+            'ul[class*="result"]', 'ol[class*="result"]',
+            
+            # Grid/row containers
+            '.row', '.grid', '.column', '.card',
+            '[class*="row"]', '[class*="grid"]', '[class*="column"]', '[class*="card"]'
         ]
         
+        result_elements = []
         for selector in result_selectors:
-            result_elements = soup.select(selector)
-            if result_elements:
-                break
+            elements = soup.select(selector)
+            if elements:
+                result_elements.extend(elements)
+                self.logger.debug(f"Found {len(elements)} elements with selector: {selector}")
         
-        # If no specific result containers, look for links
+        # If no specific result containers, look for content-rich links
         if not result_elements:
-            result_elements = soup.find_all('a', href=True)
+            all_links = soup.find_all('a', href=True)
+            # Filter for content-rich links (not navigation, social media, etc.)
+            content_links = []
+            for link in all_links:
+                href = link.get('href', '').lower()
+                text = link.get_text().strip()
+                
+                # Skip navigation and social links
+                if any(skip in href for skip in ['#', 'javascript:', 'mailto:', 'tel:', 'facebook', 'twitter', 'instagram', 'youtube']):
+                    continue
+                
+                # Look for content indicators
+                if any(indicator in href for indicator in ['/artist/', '/album/', '/mixtape/', '/track/', '/song/', '/article/', '/post/', '/item/']):
+                    content_links.append(link)
+                elif len(text) > 10 and not any(nav in text.lower() for nav in ['home', 'about', 'contact', 'login', 'register']):
+                    content_links.append(link)
+            
+            result_elements = content_links
+            self.logger.debug(f"Using {len(result_elements)} content-rich links as results")
         
+        # Extract results from elements
         for element in result_elements:
             try:
                 result_data = self._extract_result_data(element, url, query)
-                if result_data:
+                if result_data and self._is_valid_result(result_data):
                     results.append(result_data)
             except Exception as e:
                 self.logger.debug(f"Error extracting result data: {e}")
         
-        return results
+        # Remove duplicates based on URL
+        seen_urls = set()
+        unique_results = []
+        for result in results:
+            if result['url'] not in seen_urls:
+                seen_urls.add(result['url'])
+                unique_results.append(result)
+        
+        self.logger.debug(f"Extracted {len(unique_results)} unique results from {len(results)} total")
+        return unique_results
+    
+    def _is_valid_result(self, result_data: Dict[str, Any]) -> bool:
+        """Check if a result is valid and should be included."""
+        url = result_data.get('url', '')
+        title = result_data.get('title', '')
+        
+        # Must have a URL
+        if not url:
+            return False
+        
+        # Skip certain types of URLs
+        skip_patterns = [
+            '#', 'javascript:', 'mailto:', 'tel:', 'data:',
+            'facebook.com', 'twitter.com', 'instagram.com', 'youtube.com',
+            'login', 'register', 'signup', 'signin'
+        ]
+        
+        if any(pattern in url.lower() for pattern in skip_patterns):
+            return False
+        
+        # Must have some content (title or description)
+        if not title and not result_data.get('description', ''):
+            return False
+        
+        # Skip very short titles (likely navigation)
+        if title and len(title.strip()) < 3:
+            return False
+        
+        return True
     
     def _extract_result_data(self, element, base_url: str, query: str) -> Optional[Dict[str, Any]]:
-        """Extract data from a result element."""
+        """Extract data from a result element with enhanced extraction."""
         result_data = {
             'url': '',
             'title': '',
@@ -125,25 +201,77 @@ class FormSearchStrategy(SearchStrategy):
             'source_url': base_url
         }
         
-        # Extract URL
+        # Extract URL - handle both direct links and containers with links
         if element.name == 'a':
             href = element.get('href', '')
             result_data['url'] = urljoin(base_url, href)
         else:
+            # Look for links within the element
             link = element.find('a', href=True)
             if link:
                 href = link.get('href', '')
                 result_data['url'] = urljoin(base_url, href)
+            else:
+                # If no link found, this might not be a valid result
+                return None
         
-        # Extract title
-        title_elem = element.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']) or element.find('a')
+        # Extract title with multiple fallback strategies
+        title = ''
+        
+        # Strategy 1: Look for heading elements
+        title_elem = element.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
         if title_elem:
-            result_data['title'] = title_elem.get_text().strip()
+            title = title_elem.get_text().strip()
         
-        # Extract description
-        desc_elem = element.find(['p', 'span', 'div'], class_=re.compile(r'desc|summary|excerpt', re.I))
+        # Strategy 2: Look for link text if no heading
+        if not title and element.name == 'a':
+            title = element.get_text().strip()
+        elif not title:
+            link = element.find('a', href=True)
+            if link:
+                title = link.get_text().strip()
+        
+        # Strategy 3: Look for title attributes
+        if not title:
+            title_attr = element.get('title', '') or (element.find('a') and element.find('a').get('title', ''))
+            if title_attr:
+                title = title_attr.strip()
+        
+        # Strategy 4: Look for elements with title-like classes
+        if not title:
+            title_elem = element.find(['span', 'div', 'p'], class_=re.compile(r'title|name|heading', re.I))
+            if title_elem:
+                title = title_elem.get_text().strip()
+        
+        result_data['title'] = title
+        
+        # Extract description with multiple strategies
+        description = ''
+        
+        # Strategy 1: Look for description-like classes
+        desc_elem = element.find(['p', 'span', 'div'], class_=re.compile(r'desc|summary|excerpt|content|text', re.I))
         if desc_elem:
-            result_data['description'] = desc_elem.get_text().strip()
+            description = desc_elem.get_text().strip()
+        
+        # Strategy 2: Look for paragraph elements
+        if not description:
+            p_elem = element.find('p')
+            if p_elem:
+                description = p_elem.get_text().strip()
+        
+        # Strategy 3: Look for span or div with substantial text
+        if not description:
+            text_elem = element.find(['span', 'div'], string=re.compile(r'.{20,}'))
+            if text_elem:
+                description = text_elem.get_text().strip()
+        
+        # Strategy 4: Use element's own text if it's substantial
+        if not description:
+            element_text = element.get_text().strip()
+            if len(element_text) > 20 and element_text != title:
+                description = element_text
+        
+        result_data['description'] = description
         
         return result_data if result_data['url'] else None
 
